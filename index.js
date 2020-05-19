@@ -1,32 +1,30 @@
+require('dotenv').config()
 const express = require("express");
 const morgan = require("morgan");
 const cors = require('cors')
 const app = express();
+const Person = require('./models/person')
+
+const errorHandler = (error, request, response, next) => {
+  console.log("Virheen käsittely")
+  //console.error(error.message)
+  console.log("error name: ", error.name)
+  if (error.name === 'CastError') {
+    return response.status(400).send({ error: 'malformatted id' })
+  }
+
+  next(error)
+}
+
+
 
 //Source: https://stackoverflow.com/questions/51409771/logging-post-body-size-using-morgan-when-request-is-received
 morgan.token('body', function (req, res) { return JSON.stringify(req.body) });
-app.use(morgan(':method :url :status :res[content-length] - :response-time ms  :body'));
-app.use(cors())
 app.use(express.static('build'))
 app.use(express.json())
+app.use(morgan(':method :url :status :res[content-length] - :response-time ms  :body'));
+app.use(cors())
 
-let persons = [
-  {
-    name: "Arto Hellas",
-    number: "040-123456",
-    id: 1
-  },
-  {
-    name: "Ada Lovelace",
-    number: "39-44-5323523",
-    id: 2
-  },
-  {
-    name: "Dan Abramov",
-    number: "12-43-234345",
-    id: 3
-  }
-];
 
 app.get("/info", (req, res) => {
   res.send(`Phonebook contains ${persons.length} persons. 
@@ -35,7 +33,10 @@ app.get("/info", (req, res) => {
 
 app.get("/api/persons", (req, res) => {
   console.log("get all persons")
-  res.json(persons);
+  Person.find({}).then(persons => {
+    console.log(persons)
+    res.json(persons)
+  })
 });
 
 app.get("/api/persons/:id", (req, res) => {
@@ -47,7 +48,7 @@ app.get("/api/persons/:id", (req, res) => {
   }
 });
 
-app.post("/api/persons", (req, res) => {
+app.post("/api/persons", (req, res, next) => {
   const body = req.body;
   if(!body){
     return res.status(400).json({error: 'Number and name missing'})
@@ -60,25 +61,29 @@ app.post("/api/persons", (req, res) => {
   if(!number){
     return res.status(400).json({error: 'number is missing'})
   }
-  if(persons.some(person => person.name === name)){
-    return res.status(400).json({error: 'name must be unique'})
-  }
-  const randomId = Math.floor(Math.random() * 10000000);
-  const newPerson = {id: randomId, name: name, number: number};
-  persons = persons.concat(newPerson);
-  res.json(newPerson);
+
+  const newPerson = new Person({name: name, number: number});
+  newPerson.save().then(savedPerson => {
+    res.json(savedPerson);
+  })
+  .catch(error => next(error))
+  
 
 })
 
-app.delete("/api/persons/:id", (req, res) => {
-  const id = Number(req.params.id);
+app.delete("/api/persons/:id", (req, res, next) => {
+  const id = req.params.id;
   console.log("Delete ", id)
-  persons = persons.filter(person => person.id !== id);
-  console.log(persons)
-  res.status(204).end();
+  Person.findByIdAndDelete(id)
+  .then(result => {
+    res.status(204).end()
+  })
+  .catch(error => next(error))
 });
 
-const PORT = process.env.PORT || 3001
+app.use(errorHandler)
+
+const PORT = process.env.PORT
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
 });
